@@ -4,6 +4,8 @@ import hmac
 import requests
 import time
 
+from functools import reduce
+
 
 class CryptoMKT(object):
 
@@ -20,6 +22,34 @@ class CryptoMKT(object):
         self.api_key = api_key
         self.api_secret = api_secret
 
+    def check_has_tokens(self):
+
+        if self.api_key is None:
+            raise InvalidTokensException('API Key is required')
+        if self.api_secret is None:
+            raise InvalidTokensException('API Secret is required')
+
+    def get_headers(self, endpoint, body):
+
+        timestamp = str(time.time())
+        payload = '{timestamp}/{version}/{endpoint}{body}'.format(
+            timestamp=timestamp,
+            version=self.API_VERSION,
+            endpoint=endpoint,
+            body=body
+        )
+        signature = hmac.new(
+            self.api_secret.encode(),
+            payload.encode(),
+            hashlib.sha384
+        ).hexdigest()
+
+        return {
+            'X-MKT-APIKEY': self.api_key,
+            'X-MKT-SIGNATURE': signature,
+            'X-MKT-TIMESTAMP': timestamp
+        }
+
     def get(self, endpoint, params=None, headers=None):
 
         return requests.get(
@@ -28,36 +58,24 @@ class CryptoMKT(object):
             headers=headers
         ).json()
 
-    def check_has_tokens(self):
-
-        if self.api_key is None:
-            raise InvalidTokensException('API Key is required')
-        if self.api_secret is None:
-            raise InvalidTokensException('API Secret is required')
-
     def private_get(self, endpoint, params=None):
 
         self.check_has_tokens()
-
-        timestamp = str(time.time())
-        body = timestamp + '/{}/{}'.format(self.API_VERSION, endpoint)
-
-        signature = hmac.new(
-            self.api_secret.encode(),
-            body.encode(),
-            hashlib.sha384
-        ).hexdigest()
-
-        headers = {
-            'X-MKT-APIKEY': self.api_key,
-            'X-MKT-SIGNATURE': signature,
-            'X-MKT-TIMESTAMP': timestamp
-        }
+        headers = self.get_headers(endpoint, '')
         return self.get(endpoint, params=params, headers=headers)
 
-    def post(self, endpoint, params):
+    def post(self, endpoint, payload):
 
-        raise NotImplemented
+        self.check_has_tokens()
+        body = [
+            str(p[1]) for p in sorted(payload.items(), key=lambda p: p[0])
+        ]
+        headers = self.get_headers(endpoint, reduce(str.__add__, body))
+        return requests.post(
+            '{}/{}/{}'.format(self.BASE_URL, self.API_VERSION, endpoint),
+            data=payload,
+            headers=headers
+        ).json()
 
     def markets(self):
 
